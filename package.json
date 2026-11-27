@@ -27,7 +27,7 @@
     "ios": "expo run:ios --port 8097",
     "ios:device": "expo run:ios --device --port 8097",
     "typecheck": "tsc --noEmit",
-    "test:follower": "swiftc modules/floating-prompter/ios/ScriptFollower.swift modules/floating-prompter/tests/main.swift -o .expo/follower-test && .expo/follower-test",
+    "test:follower": "mkdir -p .expo && swiftc modules/floating-prompter/ios/ScriptFollower.swift modules/floating-prompter/tests/main.swift -o .expo/follower-test && .expo/follower-test",
     "ios:release": "expo run:ios --configuration Release --device --no-bundler"
   },
   "private": true
