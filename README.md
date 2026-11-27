@@ -20,6 +20,14 @@ bun run start          # metro on port 8097, dev client mode
 
 then open the app on the phone. the phone and the mac must be on the same network. the port is 8097 because the sibling demo `pocket-soundboard` uses 8088.
 
+since 2026-11-27 the phone has a release build. it holds its own javascript, so it runs with no mac and no metro, and it has no dev gear button. to put a new release build on the phone:
+
+```bash
+bun run ios:release    # build the release configuration and install it on the connected iphone
+```
+
+`bun run ios:device` puts the development build back (same app, it replaces the release build).
+
 `bun run ios` builds for a simulator. the iphone simulator has no picture in picture (see "what was tested"), so use it only for the screen and the scroll.
 
 after a change to a swift file or to `app.json`, build again with `bun run ios:device`. `ios/` is generated and ignored: do not edit it.
