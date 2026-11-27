@@ -203,160 +203,172 @@ function PrompterScreen() {
             : 'The floating window shows this frame: two lines that scroll.'}
         </Text>
 
-        <View style={styles.modeCard}>
-          <Text style={styles.settingLabel}>The scroll follows</Text>
-          <View style={styles.segments}>
-            {[
-              { label: 'My voice', value: true },
-              { label: 'A timer', value: false },
-            ].map((option) => {
-              const selected = option.value === voice;
-              return (
-                <Pressable
-                  key={option.label}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Scroll follows ${option.label}`}
-                  accessibilityState={{ selected }}
-                  onPress={() => chooseVoice(option.value)}
-                  style={[styles.segment, selected && styles.segmentSelected]}>
-                  <Text style={[styles.segmentText, selected && styles.segmentTextSelected]}>
-                    {option.label}
-                  </Text>
+        {/* the settings and the script scroll together. while the keyboard is open,
+            the settings hide and the script gets the space. */}
+        <ScrollView
+          style={styles.flex}
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}>
+          {editing ? null : (
+            <>
+            <View style={styles.modeCard}>
+              <Text style={styles.settingLabel}>The scroll follows</Text>
+              <View style={styles.segments}>
+                {[
+                  { label: 'My voice', value: true },
+                  { label: 'A timer', value: false },
+                ].map((option) => {
+                  const selected = option.value === voice;
+                  return (
+                    <Pressable
+                      key={option.label}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Scroll follows ${option.label}`}
+                      accessibilityState={{ selected }}
+                      onPress={() => chooseVoice(option.value)}
+                      style={[styles.segment, selected && styles.segmentSelected]}>
+                      <Text style={[styles.segmentText, selected && styles.segmentTextSelected]}>
+                        {option.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+
+            <View style={styles.modeCard}>
+              <Text style={styles.settingLabel}>Floating window type</Text>
+              <View style={styles.segments}>
+                {[
+                  { label: 'Call', value: true },
+                  { label: 'Video', value: false },
+                ].map((option) => {
+                  const selected = option.value === callStyle;
+                  return (
+                    <Pressable
+                      key={option.label}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Window type ${option.label}`}
+                      accessibilityState={{ selected }}
+                      onPress={() => chooseCallStyle(option.value)}
+                      style={[styles.segment, selected && styles.segmentSelected]}>
+                      <Text style={[styles.segmentText, selected && styles.segmentTextSelected]}>
+                        {option.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+
+            <View style={styles.settings}>
+              <View style={styles.setting}>
+                <Text style={styles.settingLabel}>Speed</Text>
+                <View style={styles.stepper}>
+                  <StepButton
+                    label="−"
+                    accessibilityLabel="Slower"
+                    disabled={wordsPerMinute <= MIN_WPM}
+                    onPress={() => setWordsPerMinute((value) => Math.max(MIN_WPM, value - WPM_STEP))}
+                  />
+                  <Text style={styles.stepperValue}>{wordsPerMinute} wpm</Text>
+                  <StepButton
+                    label="+"
+                    accessibilityLabel="Faster"
+                    disabled={wordsPerMinute >= MAX_WPM}
+                    onPress={() => setWordsPerMinute((value) => Math.min(MAX_WPM, value + WPM_STEP))}
+                  />
+                </View>
+              </View>
+              <View style={styles.setting}>
+                <Text style={styles.settingLabel}>Text size</Text>
+                <View style={styles.segments}>
+                  {SIZES.map((size) => {
+                    const selected = size.fontSize === fontSize;
+                    return (
+                      <Pressable
+                        key={size.label}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Text size ${size.label}`}
+                        accessibilityState={{ selected }}
+                        onPress={() => setFontSize(size.fontSize)}
+                        style={[styles.segment, selected && styles.segmentSelected]}>
+                        <Text style={[styles.segmentText, selected && styles.segmentTextSelected]}>
+                          {size.label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+            </View>
+
+            {voice ? (
+              <View style={styles.modeCard}>
+                <Text style={styles.settingLabel}>
+                  {state.listening ? 'Listening' : state.playing ? 'No microphone: timer' : 'Voice'}
+                </Text>
+                <Text numberOfLines={1} style={styles.heard}>
+                  {state.listening && state.heard
+                    ? `"${state.heard}"`
+                    : 'Read at your own pace. Say a section again, and the prompt goes back with you.'}
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.autoStart}>
+                <Text style={styles.settingLabel}>Start after I leave the app</Text>
+                <View style={styles.segments}>
+                  {AUTO_STARTS.map((option) => {
+                    const selected = option.seconds === autoStartDelay;
+                    return (
+                      <Pressable
+                        key={option.label}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Start delay ${option.label}`}
+                        accessibilityState={{ selected }}
+                        onPress={() => setAutoStartDelay(option.seconds)}
+                        style={[styles.segment, selected && styles.segmentSelected]}>
+                        <Text style={[styles.segmentText, selected && styles.segmentTextSelected]}>
+                          {option.label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+            )}
+            </>
+          )}
+
+          <View style={[styles.scriptCard, editing && styles.scriptCardEditing]}>
+            <View style={styles.scriptHeader}>
+              <Text style={styles.settingLabel}>Script</Text>
+              <Text style={styles.scriptMeta}>
+                {state.wordCount} words · {formatDuration(state.duration)}
+              </Text>
+              {editing ? (
+                <Pressable accessibilityRole="button" hitSlop={12} onPress={Keyboard.dismiss}>
+                  <Text style={styles.done}>Done</Text>
                 </Pressable>
-              );
-            })}
-          </View>
-        </View>
-
-        <View style={styles.modeCard}>
-          <Text style={styles.settingLabel}>Floating window type</Text>
-          <View style={styles.segments}>
-            {[
-              { label: 'Call', value: true },
-              { label: 'Video', value: false },
-            ].map((option) => {
-              const selected = option.value === callStyle;
-              return (
-                <Pressable
-                  key={option.label}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Window type ${option.label}`}
-                  accessibilityState={{ selected }}
-                  onPress={() => chooseCallStyle(option.value)}
-                  style={[styles.segment, selected && styles.segmentSelected]}>
-                  <Text style={[styles.segmentText, selected && styles.segmentTextSelected]}>
-                    {option.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        </View>
-
-        <View style={styles.settings}>
-          <View style={styles.setting}>
-            <Text style={styles.settingLabel}>Speed</Text>
-            <View style={styles.stepper}>
-              <StepButton
-                label="−"
-                accessibilityLabel="Slower"
-                disabled={wordsPerMinute <= MIN_WPM}
-                onPress={() => setWordsPerMinute((value) => Math.max(MIN_WPM, value - WPM_STEP))}
-              />
-              <Text style={styles.stepperValue}>{wordsPerMinute} wpm</Text>
-              <StepButton
-                label="+"
-                accessibilityLabel="Faster"
-                disabled={wordsPerMinute >= MAX_WPM}
-                onPress={() => setWordsPerMinute((value) => Math.min(MAX_WPM, value + WPM_STEP))}
-              />
+              ) : null}
             </View>
+            <TextInput
+              accessibilityLabel="Script"
+              multiline
+              value={script}
+              onChangeText={setScript}
+              onFocus={() => setEditing(true)}
+              onBlur={() => setEditing(false)}
+              placeholder="Paste your script here"
+              placeholderTextColor={colors.textFaint}
+              selectionColor={colors.accent}
+              keyboardAppearance="dark"
+              textAlignVertical="top"
+              style={styles.scriptInput}
+            />
           </View>
-          <View style={styles.setting}>
-            <Text style={styles.settingLabel}>Text size</Text>
-            <View style={styles.segments}>
-              {SIZES.map((size) => {
-                const selected = size.fontSize === fontSize;
-                return (
-                  <Pressable
-                    key={size.label}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Text size ${size.label}`}
-                    accessibilityState={{ selected }}
-                    onPress={() => setFontSize(size.fontSize)}
-                    style={[styles.segment, selected && styles.segmentSelected]}>
-                    <Text style={[styles.segmentText, selected && styles.segmentTextSelected]}>
-                      {size.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-          </View>
-        </View>
-
-        {voice ? (
-          <View style={styles.modeCard}>
-            <Text style={styles.settingLabel}>
-              {state.listening ? 'Listening' : state.playing ? 'No microphone: timer' : 'Voice'}
-            </Text>
-            <Text numberOfLines={1} style={styles.heard}>
-              {state.listening && state.heard
-                ? `"${state.heard}"`
-                : 'Read at your own pace. Say a section again, and the prompt goes back with you.'}
-            </Text>
-          </View>
-        ) : (
-          <View style={styles.autoStart}>
-            <Text style={styles.settingLabel}>Start after I leave the app</Text>
-            <View style={styles.segments}>
-              {AUTO_STARTS.map((option) => {
-                const selected = option.seconds === autoStartDelay;
-                return (
-                  <Pressable
-                    key={option.label}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Start delay ${option.label}`}
-                    accessibilityState={{ selected }}
-                    onPress={() => setAutoStartDelay(option.seconds)}
-                    style={[styles.segment, selected && styles.segmentSelected]}>
-                    <Text style={[styles.segmentText, selected && styles.segmentTextSelected]}>
-                      {option.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-          </View>
-        )}
-
-        <View style={[styles.scriptCard, editing && styles.scriptCardEditing]}>
-          <View style={styles.scriptHeader}>
-            <Text style={styles.settingLabel}>Script</Text>
-            <Text style={styles.scriptMeta}>
-              {state.wordCount} words · {formatDuration(state.duration)}
-            </Text>
-            {editing ? (
-              <Pressable accessibilityRole="button" hitSlop={12} onPress={Keyboard.dismiss}>
-                <Text style={styles.done}>Done</Text>
-              </Pressable>
-            ) : null}
-          </View>
-          <TextInput
-            accessibilityLabel="Script"
-            multiline
-            value={script}
-            onChangeText={setScript}
-            onFocus={() => setEditing(true)}
-            onBlur={() => setEditing(false)}
-            placeholder="Paste your script here"
-            placeholderTextColor={colors.textFaint}
-            selectionColor={colors.accent}
-            keyboardAppearance="dark"
-            textAlignVertical="top"
-            style={styles.scriptInput}
-          />
-        </View>
+        </ScrollView>
 
         {editing ? null : (
           <View style={styles.footer}>
@@ -567,8 +579,10 @@ const styles = StyleSheet.create({
   segmentSelected: { backgroundColor: colors.segmentSelected },
   segmentText: { color: colors.textMuted, fontSize: 14, fontWeight: '600' },
   segmentTextSelected: { color: colors.text },
+  scrollContent: { flexGrow: 1 },
   scriptCard: {
     flex: 1,
+    minHeight: 220,
     padding: space.sm,
     borderRadius: radius.card,
     borderCurve: 'continuous',
