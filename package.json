@@ -18,7 +18,8 @@
     "start": "expo start --dev-client --port 8097",
     "ios": "expo run:ios --port 8097",
     "ios:device": "expo run:ios --device --port 8097",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:follower": "swiftc modules/floating-prompter/ios/ScriptFollower.swift modules/floating-prompter/tests/main.swift -o .expo/follower-test && .expo/follower-test"
   },
   "private": true
 }

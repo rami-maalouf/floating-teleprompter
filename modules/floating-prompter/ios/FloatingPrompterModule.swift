@@ -6,6 +6,7 @@ struct PrompterConfig: Record {
   @Field var wordsPerMinute: Double = 140
   @Field var fontSize: Double = 120
   @Field var autoStartDelay: Double = 0
+  @Field var voice: Bool = false
 }
 
 private let draftKey = "prompter.draft"
@@ -36,6 +37,30 @@ public class FloatingPrompterModule: Module {
       UserDefaults.standard.bool(forKey: "prompterAutostart")
     }
 
+    // launch with "-prompterSimulateVoice YES" to run the voice follow with
+    // words from a script and no microphone
+    Function("shouldSimulateVoice") {
+      UserDefaults.standard.bool(forKey: "prompterSimulateVoice")
+    }
+
+    Function("voicePermissionsGranted") {
+      SpeechListener.microphoneGranted && SpeechListener.speechGranted
+    }
+
+    AsyncFunction("requestVoicePermissions") { (promise: Promise) in
+      SpeechListener.requestPermissions { microphone, speech in
+        promise.resolve(microphone && speech)
+      }
+    }
+
+    AsyncFunction("setSimulatedVoice") { (simulated: Bool) in
+      PrompterEngine.shared.setSimulatedVoice(simulated)
+    }.runOnQueue(.main)
+
+    AsyncFunction("debugHear") { (text: String) in
+      PrompterEngine.shared.debugHear(text)
+    }.runOnQueue(.main)
+
     Function("loadDraft") {
       UserDefaults.standard.string(forKey: draftKey)
     }
@@ -49,7 +74,8 @@ public class FloatingPrompterModule: Module {
         text: config.text,
         wordsPerMinute: config.wordsPerMinute,
         fontSize: config.fontSize,
-        autoStartDelay: config.autoStartDelay
+        autoStartDelay: config.autoStartDelay,
+        voice: config.voice
       )
     }.runOnQueue(.main)
 

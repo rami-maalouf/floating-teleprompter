@@ -14,6 +14,14 @@ export type PrompterState = {
   duration: number;
   rowCount: number;
   wordCount: number;
+  // the voice mode is on
+  voice: boolean;
+  // the microphone gives audio and the scroll follows the voice
+  listening: boolean;
+  // the last words that the recognizer heard
+  heard: string;
+  // the number of script words already said
+  wordIndex: number;
 };
 
 export type PrompterConfig = {
@@ -25,6 +33,9 @@ export type PrompterConfig = {
   // ios pauses the floating window when the camera app opens, so this timer
   // starts the scroll with no tap on the floating window.
   autoStartDelay: number;
+  // true: the microphone and speech recognition move the scroll.
+  // false: the timer moves it at wordsPerMinute.
+  voice: boolean;
 };
 
 type PrompterEvents = {
@@ -35,6 +46,11 @@ type PrompterEvents = {
 declare class FloatingPrompterModule extends NativeModule<PrompterEvents> {
   isSupported(): boolean;
   shouldAutostart(): boolean;
+  shouldSimulateVoice(): boolean;
+  voicePermissionsGranted(): boolean;
+  requestVoicePermissions(): Promise<boolean>;
+  setSimulatedVoice(simulated: boolean): Promise<void>;
+  debugHear(text: string): Promise<void>;
   loadDraft(): string | null;
   saveDraft(text: string): void;
   configure(config: PrompterConfig): Promise<void>;

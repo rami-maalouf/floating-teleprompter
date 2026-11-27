@@ -5,6 +5,7 @@ Floating teleprompter demo for the Grok Bot / Expo showcase. Read `README.md` fi
 - One screen (`App.tsx`), no router. One local Expo module in `modules/floating-prompter/` (Swift, iOS only).
 - Metro runs on port 8097 (`bun run start`). Build with `bun run ios:device`.
 - Picture in Picture does not exist on the iPhone simulator. Verify it on a real iPhone.
+- Two scroll modes: a timer, and voice follow (speech recognition plus `ScriptFollower`). After a change to `ScriptFollower.swift`, run `bun run test:follower`.
 - Auto-pause at `[demo]` is left out on purpose. Do not add it unless Rami asks.
 
 ---

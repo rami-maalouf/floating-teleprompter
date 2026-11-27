@@ -15,7 +15,13 @@ final class PrompterRenderer {
   private struct Row {
     let line: CTLine
     let width: CGFloat
+    // index in scriptWords of the first word of this row
+    let firstWord: Int
+    // x position of the start of each word, from the start of the line
+    let wordStarts: [CGFloat]
   }
+
+  private static let readAlpha: CGFloat = 0.38
 
   private var rows: [Row] = []
   private var baselineInRow: CGFloat = 0
@@ -23,7 +29,31 @@ final class PrompterRenderer {
   private var formatDescription: CMVideoFormatDescription?
   private let colorSpace = CGColorSpaceCreateDeviceRGB()
 
-  private(set) var wordCount = 0
+  // every word on screen, in order. ScriptFollower uses the same list.
+  private(set) var scriptWords: [String] = []
+
+  var wordCount: Int { scriptWords.count }
+
+  func row(ofWord word: Int) -> Int {
+    guard !rows.isEmpty else { return 0 }
+    // the last row whose first word is at or before this word
+    var low = 0
+    var high = rows.count - 1
+    while low < high {
+      let middle = (low + high + 1) / 2
+      if rows[middle].firstWord <= word {
+        low = middle
+      } else {
+        high = middle - 1
+      }
+    }
+    return low
+  }
+
+  func firstWord(ofRow row: Int) -> Int {
+    guard !rows.isEmpty else { return 0 }
+    return rows[min(max(row, 0), rows.count - 1)].firstWord
+  }
 
   var rowCount: Int { rows.count }
 
@@ -39,11 +69,11 @@ final class PrompterRenderer {
     let maxWidth = Double(Self.canvasSize.width - Self.sidePadding * 2)
 
     var newRows: [Row] = []
-    var words = 0
+    var words: [String] = []
     for paragraph in text.components(separatedBy: .newlines) {
       let collapsed = paragraph.split(whereSeparator: { $0 == " " || $0 == "\t" }).joined(separator: " ")
       guard !collapsed.isEmpty else { continue }
-      words += collapsed.split(separator: " ").count
+      let text = collapsed as NSString
 
       let attributed = NSAttributedString(string: collapsed, attributes: attributes)
       let typesetter = CTTypesetterCreateWithAttributedString(attributed)
@@ -54,23 +84,39 @@ final class PrompterRenderer {
         let line = CTTypesetterCreateLine(typesetter, CFRange(location: start, length: count))
         let width = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
           - CGFloat(CTLineGetTrailingWhitespaceWidth(line))
-        newRows.append(Row(line: line, width: width))
+
+        // find the words of this row and where each one starts
+        var starts: [CGFloat] = []
+        let firstWord = words.count
+        var wordStart: Int?
+        for index in start...(start + count) {
+          let isSpace = index == start + count || text.character(at: index) == 32
+          if !isSpace, wordStart == nil {
+            wordStart = index
+          } else if isSpace, let begin = wordStart {
+            starts.append(CTLineGetOffsetForStringIndex(line, begin, nil))
+            words.append(text.substring(with: NSRange(location: begin, length: index - begin)))
+            wordStart = nil
+          }
+        }
+        newRows.append(Row(line: line, width: width, firstWord: firstWord, wordStarts: starts))
         start += count
       }
     }
 
     rows = newRows
-    wordCount = words
+    scriptWords = words
     // center the cap height of the text in its row
     baselineInRow = (Self.rowHeight + font.capHeight) / 2
   }
 
   // offset is the scroll position in canvas points. progress is 0...1.
-  func makeSampleBuffer(offset: CGFloat, progress: CGFloat, time: CMTime) -> CMSampleBuffer? {
+  // readWords is the number of words already said: they are drawn dim. nil draws all words bright.
+  func makeSampleBuffer(offset: CGFloat, progress: CGFloat, readWords: Int?, time: CMTime) -> CMSampleBuffer? {
     guard let pixelBuffer = makePixelBuffer() else { return nil }
 
     CVPixelBufferLockBaseAddress(pixelBuffer, [])
-    draw(into: pixelBuffer, offset: offset, progress: progress)
+    draw(into: pixelBuffer, offset: offset, progress: progress, readWords: readWords)
     CVPixelBufferUnlockBaseAddress(pixelBuffer, [])
 
     if formatDescription == nil {
@@ -128,7 +174,7 @@ final class PrompterRenderer {
     return pixelBuffer
   }
 
-  private func draw(into pixelBuffer: CVPixelBuffer, offset: CGFloat, progress: CGFloat) {
+  private func draw(into pixelBuffer: CVPixelBuffer, offset: CGFloat, progress: CGFloat, readWords: Int?) {
     let size = Self.canvasSize
     guard
       let context = CGContext(
@@ -154,8 +200,30 @@ final class PrompterRenderer {
         let row = rows[index]
         let top = CGFloat(index) * Self.rowHeight - offset
         let baseline = size.height - (top + baselineInRow)
-        context.textPosition = CGPoint(x: (size.width - row.width) / 2, y: baseline)
+        let left = (size.width - row.width) / 2
+        let readInRow = min(max((readWords ?? 0) - row.firstWord, 0), row.wordStarts.count)
+
+        if readInRow == 0 {
+          context.textPosition = CGPoint(x: left, y: baseline)
+          CTLineDraw(row.line, context)
+          continue
+        }
+
+        // the words already said: dim
+        context.setAlpha(Self.readAlpha)
+        context.textPosition = CGPoint(x: left, y: baseline)
         CTLineDraw(row.line, context)
+        context.setAlpha(1)
+
+        // the words still to say: bright, drawn only to the right of the split
+        if readInRow < row.wordStarts.count {
+          let split = left + row.wordStarts[readInRow]
+          context.saveGState()
+          context.clip(to: CGRect(x: split, y: 0, width: size.width - split, height: size.height))
+          context.textPosition = CGPoint(x: left, y: baseline)
+          CTLineDraw(row.line, context)
+          context.restoreGState()
+        }
       }
     }
 

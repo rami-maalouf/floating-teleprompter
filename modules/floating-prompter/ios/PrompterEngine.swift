@@ -17,7 +17,9 @@ final class PrompterHostView: UIView {
 // every method must run on the main thread.
 //
 // invariants:
-// - the timebase is the only source of the scroll position
+// - the timebase is the only source of the scroll position. the timer mode lets it
+//   run at rate 1. the voice mode keeps the rate at 0 and moves the time to the
+//   row that ScriptFollower found.
 // - frames are drawn only in tick()
 // - "armed" means the audio session and the picture in picture controller are live
 final class PrompterEngine: NSObject {
@@ -47,6 +49,19 @@ final class PrompterEngine: NSObject {
   private let silencePlayer = AVAudioPlayerNode()
   private var silenceAttached = false
 
+  // voice follow: the microphone and ScriptFollower move the scroll
+  private let listener = SpeechListener()
+  private var follower = ScriptFollower()
+  private var voiceMode = false
+  // feed words with debugHear, with no microphone (simulator and terminal checks)
+  private var simulatedVoice = false
+  // the microphone gives audio now. when it does not, the scroll runs on the timer.
+  private var voiceLive = false
+  private var listenStart: CFTimeInterval = 0
+  private var heard = ""
+  private var debugTranscript: [String] = []
+  private var backgroundMicBuffers = 0
+
   private var wordsPerMinute: Double = 140
   // seconds between "the app left the front" and "the scroll starts". 0 is off.
   private var autoStartDelay: Double = 0
@@ -61,6 +76,7 @@ final class PrompterEngine: NSObject {
   private var startAnswered = false
   private var dirty = true
   private var lastRender: CFTimeInterval = 0
+  private var lastFollow: CFTimeInterval = 0
   private var lastStateEmit: CFTimeInterval = 0
 
   // background run statistics. they show whether ios kept the app running
@@ -95,17 +111,32 @@ final class PrompterEngine: NSObject {
       "duration": duration,
       "rowCount": renderer.rowCount,
       "wordCount": renderer.wordCount,
+      "voice": voiceMode,
+      "listening": playing && voiceMode && voiceLive,
+      "heard": heard,
+      "wordIndex": follower.cursor,
     ]
   }
 
-  func configure(text: String, wordsPerMinute: Double, fontSize: Double, autoStartDelay: Double) {
+  func configure(text: String, wordsPerMinute: Double, fontSize: Double, autoStartDelay: Double, voice: Bool) {
     let previousProgress = progress
+    let voiceChanged = voice != voiceMode
+    voiceMode = voice
     self.autoStartDelay = max(autoStartDelay, 0)
     self.wordsPerMinute = max(wordsPerMinute, 1)
     renderer.layout(text: text, fontSize: CGFloat(fontSize))
     duration = Double(renderer.wordCount) / self.wordsPerMinute * 60
     // keep the same place in the script when the speed or the size changes
     setTime(previousProgress * duration)
+    follower.setScript(renderer.scriptWords, keepCursor: true)
+    if voiceChanged {
+      syncCursorToPosition()
+      if armed || playing {
+        // the microphone needs another audio category
+        try? activateAudioSession()
+      }
+    }
+    applyDrive()
     startTimerIfNeeded()
     observeAppIfNeeded()
     dirty = true
@@ -156,19 +187,42 @@ final class PrompterEngine: NSObject {
 
   func setPlaying(_ shouldPlay: Bool) {
     guard shouldPlay != playing else { return }
-    if shouldPlay && isAtEnd {
+    if shouldPlay && (voiceMode ? follower.cursor >= renderer.wordCount : isAtEnd) {
       // play at the end starts the script again
       setTime(0)
+      follower.moveCursor(to: 0)
+    }
+    if shouldPlay && voiceMode && !armed {
+      // rehearsal in the app, before the prompt floats
+      try? activateAudioSession()
     }
     playing = shouldPlay
-    CMTimebaseSetRate(timebase, rate: shouldPlay ? 1 : 0)
+    applyDrive()
+    if !shouldPlay && !armed {
+      stopSilence()
+      try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
     dirty = true
     pip?.invalidatePlaybackState()
     emitState()
   }
 
+  // simulator and terminal checks: words arrive as if the recognizer heard them
+  func setSimulatedVoice(_ simulated: Bool) {
+    simulatedVoice = simulated
+    debugTranscript = []
+    applyDrive()
+  }
+
+  func debugHear(_ text: String) {
+    debugTranscript.append(contentsOf: ScriptFollower.normalizedWords(in: text))
+    handleTranscript(debugTranscript)
+  }
+
   func restart() {
     setTime(0)
+    follower.moveCursor(to: 0)
+    debugTranscript = []
     dirty = true
     pip?.invalidatePlaybackState()
     emitState()
@@ -201,7 +255,7 @@ final class PrompterEngine: NSObject {
     return seconds.isFinite ? min(max(seconds, 0), duration) : 0
   }
 
-  // the timebase keeps time in 1/600 s steps, so compare with a small margin
+  // the timebase keeps time in small steps, so compare with a small margin
   private var isAtEnd: Bool {
     currentTime >= duration - 0.05
   }
@@ -212,7 +266,7 @@ final class PrompterEngine: NSObject {
 
   private func setTime(_ seconds: Double) {
     let clamped = min(max(seconds, 0), duration)
-    CMTimebaseSetTime(timebase, time: CMTime(seconds: clamped, preferredTimescale: 600))
+    CMTimebaseSetTime(timebase, time: CMTime(seconds: clamped, preferredTimescale: 60_000))
   }
 
   // MARK: - frames
@@ -234,7 +288,15 @@ final class PrompterEngine: NSObject {
     }
     lastTick = now
 
-    if playing {
+    if playing && voiceMode {
+      updateVoiceLive()
+    }
+
+    if playing && voiceMode && voiceLive {
+      followVoice(elapsed: lastFollow > 0 ? now - lastFollow : 0.033)
+      lastFollow = now
+    } else if playing {
+      lastFollow = 0
       dirty = true
       if isAtEnd {
         // the last row reached the top: hold there
@@ -265,6 +327,7 @@ final class PrompterEngine: NSObject {
       let sampleBuffer = renderer.makeSampleBuffer(
         offset: CGFloat(currentProgress) * renderer.maxOffset,
         progress: CGFloat(currentProgress),
+        readWords: voiceMode ? follower.cursor : nil,
         time: CMTimebaseGetTime(timebase)
       )
     else { return }
@@ -275,6 +338,119 @@ final class PrompterEngine: NSObject {
     if backgroundStart != nil {
       backgroundFrames += 1
     }
+  }
+
+  // MARK: - voice follow
+
+  // one place decides who moves the scroll: the timer, the voice, or nothing
+  private func applyDrive() {
+    let wantListener = playing && voiceMode && !simulatedVoice
+    if wantListener && !listener.running {
+      startListening()
+    } else if !wantListener && listener.running {
+      listener.stop()
+      log("stopped listening")
+    }
+    if !(playing && voiceMode) {
+      voiceLive = false
+    } else if simulatedVoice {
+      voiceLive = true
+    }
+    let timerDrives = playing && !(voiceMode && voiceLive)
+    CMTimebaseSetRate(timebase, rate: timerDrives ? 1 : 0)
+  }
+
+  private func startListening() {
+    guard SpeechListener.microphoneGranted, SpeechListener.speechGranted else {
+      log("error: allow the microphone and speech recognition to follow your voice")
+      return
+    }
+    listener.onLog = { [weak self] message in self?.log(message) }
+    listener.onTranscript = { [weak self] words in self?.handleTranscript(words) }
+    do {
+      try listener.start(hints: recognitionHints())
+      listenStart = CACurrentMediaTime()
+      voiceLive = true
+    } catch {
+      voiceLive = false
+      log("error: listening did not start: \(error.localizedDescription)")
+    }
+  }
+
+  // unusual words from the script. the recognizer prefers words that it gets as hints.
+  private func recognitionHints() -> [String] {
+    var seen = Set<String>()
+    var hints: [String] = []
+    for word in renderer.scriptWords {
+      let trimmed = word.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+      guard trimmed.count >= 6, seen.insert(trimmed.lowercased()).inserted else { continue }
+      hints.append(trimmed)
+      if hints.count == 100 { break }
+    }
+    return hints
+  }
+
+  // the microphone can stop while the listener runs, for example when another
+  // app takes it. then the timer moves the scroll, so the prompt never freezes.
+  private func updateVoiceLive() {
+    guard !simulatedVoice else { return }
+    let now = CACurrentMediaTime()
+    let live = listener.running && (listener.secondsSinceAudio < 2 || now - listenStart < 2)
+    guard live != voiceLive else { return }
+    voiceLive = live
+    if live {
+      syncCursorToPosition()
+      log("the microphone gives audio again: the scroll follows your voice")
+    } else {
+      log("the microphone gives no audio: the scroll runs on the timer")
+      if !listener.running || listener.secondsSinceAudio > 5 {
+        // try to get the microphone back
+        listener.stop()
+        startListening()
+        voiceLive = false
+      }
+    }
+    applyDrive()
+    emitState()
+  }
+
+  private func handleTranscript(_ words: [String]) {
+    guard playing, voiceMode else { return }
+    let moved = follower.hear(words)
+    let newHeard = words.suffix(4).joined(separator: " ")
+    if moved {
+      dirty = true
+      if follower.cursor >= renderer.wordCount {
+        log("reached the end of the script")
+      }
+    }
+    if moved || newHeard != heard {
+      heard = newHeard
+      emitState()
+    }
+  }
+
+  // the row with the next word goes to the top row, and the row after it shows below.
+  // the target looks one word ahead, because the recognizer is a little late.
+  private func followVoice(elapsed: CFTimeInterval) {
+    guard renderer.maxOffset > 0, duration > 0 else { return }
+    let lookAhead = min(follower.cursor + 1, max(renderer.wordCount - 1, 0))
+    let targetOffset = CGFloat(renderer.row(ofWord: lookAhead)) * PrompterRenderer.rowHeight
+    let targetTime = Double(targetOffset / renderer.maxOffset) * duration
+    let difference = targetTime - currentTime
+    guard abs(difference) > 0.0001 else { return }
+    // ease to the target: fast at first, soft at the end. snap when it is near,
+    // so the engine stops drawing new frames.
+    let step = difference * (1 - exp(-elapsed * 9))
+    setTime(abs(difference) < 0.004 ? targetTime : currentTime + step)
+    dirty = true
+  }
+
+  // after a change of mode or a seek, the cursor starts at the row on screen
+  private func syncCursorToPosition() {
+    let row = Int((CGFloat(progress) * renderer.maxOffset / PrompterRenderer.rowHeight).rounded())
+    follower.moveCursor(to: renderer.firstWord(ofRow: row))
+    debugTranscript = []
   }
 
   // MARK: - picture in picture
@@ -308,7 +484,11 @@ final class PrompterEngine: NSObject {
     let session = AVAudioSession.sharedInstance()
     // playback is required for picture in picture. mixWithOthers asks ios not to
     // treat this app as the owner of audio, so other apps keep their audio.
-    try session.setCategory(.playback, mode: .moviePlayback, options: [.mixWithOthers])
+    if voiceMode && !simulatedVoice {
+      try session.setCategory(.playAndRecord, mode: .default, options: [.mixWithOthers, .defaultToSpeaker])
+    } else {
+      try session.setCategory(.playback, mode: .moviePlayback, options: [.mixWithOthers])
+    }
     try session.setActive(true)
     startSilence()
   }
@@ -360,10 +540,13 @@ final class PrompterEngine: NSObject {
         // measured on an iphone: ios pauses the floating window when the camera app
         // opens, and a play request made later from here works. so start the scroll
         // from a timer, and the user does not have to touch the floating window.
-        if self.pipActive, self.autoStartDelay > 0 {
+        // the voice mode has nothing to wait for: it listens again after 1 s.
+        self.backgroundMicBuffers = self.listener.buffersHeard
+        let delay = self.voiceMode ? 1 : self.autoStartDelay
+        if self.pipActive, delay > 0 {
           let token = UUID()
           self.autoStartToken = token
-          DispatchQueue.main.asyncAfter(deadline: .now() + self.autoStartDelay) { [weak self] in
+          DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self, self.autoStartToken == token, self.backgroundStart != nil, self.pipActive else { return }
             self.log("auto start: play")
             self.setPlaying(true)
@@ -385,6 +568,9 @@ final class PrompterEngine: NSObject {
             format: "back in app after %.0f s. frames drawn: %d. longest pause: %.2f s",
             now - start, self.backgroundFrames, longestGap
           ))
+        if self.voiceMode {
+          self.log("microphone buffers while away: \(self.listener.buffersHeard - self.backgroundMicBuffers)")
+        }
         self.dirty = true
         self.emitState()
       })
@@ -404,6 +590,10 @@ final class PrompterEngine: NSObject {
           if self.armed {
             try? AVAudioSession.sharedInstance().setActive(true)
             self.startSilence()
+            if self.listener.running {
+              self.listener.stop()
+            }
+            self.applyDrive()
           }
         @unknown default:
           break
@@ -491,7 +681,14 @@ extension PrompterEngine: AVPictureInPictureSampleBufferPlaybackDelegate {
     skipByInterval skipInterval: CMTime,
     completion completionHandler: @escaping () -> Void
   ) {
-    setTime(currentTime + skipInterval.seconds)
+    if voiceMode {
+      // the skip buttons move one row
+      let row = renderer.row(ofWord: min(follower.cursor, max(renderer.wordCount - 1, 0)))
+      follower.moveCursor(to: renderer.firstWord(ofRow: row + (skipInterval.seconds < 0 ? -1 : 1)))
+      debugTranscript = []
+    } else {
+      setTime(currentTime + skipInterval.seconds)
+    }
     dirty = true
     emitState()
     completionHandler()

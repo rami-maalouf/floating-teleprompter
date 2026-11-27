@@ -6,15 +6,23 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
-    "platforms": ["ios"],
+    "platforms": [
+      "ios"
+    ],
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.ramimaalouf.floatingteleprompter",
       "infoPlist": {
-        "UIBackgroundModes": ["audio"],
-        "ITSAppUsesNonExemptEncryption": false
+        "UIBackgroundModes": [
+          "audio"
+        ],
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSMicrophoneUsageDescription": "The teleprompter listens to you so the script scrolls at your pace.",
+        "NSSpeechRecognitionUsageDescription": "The teleprompter finds your place in the script from the words you say."
       }
     },
-    "plugins": ["expo-dev-client"]
+    "plugins": [
+      "expo-dev-client"
+    ]
   }
 }

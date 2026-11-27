@@ -52,7 +52,17 @@ const IDLE_STATE: PrompterState = {
   duration: 0,
   rowCount: 0,
   wordCount: 0,
+  voice: false,
+  listening: false,
+  heard: '',
+  wordIndex: 0,
 };
+
+// "-prompterSimulateVoice YES": a read with one repeated section, with no microphone.
+// the speaker reads to "Picture in Picture", then says the second sentence again.
+const SIMULATED_READ =
+  'This prompt floats on top of every app on my iPhone I pasted my script and I started Picture in Picture ' +
+  'I pasted my script and I started Picture in Picture Then I opened the Camera app';
 
 function formatDuration(seconds: number) {
   const total = Math.round(seconds);
@@ -73,6 +83,9 @@ function PrompterScreen() {
   const [wordsPerMinute, setWordsPerMinute] = useState(140);
   const [fontSize, setFontSize] = useState<number>(SIZES[1].fontSize);
   const [autoStartDelay, setAutoStartDelay] = useState<number>(10);
+  const [voice, setVoice] = useState(
+    () => FloatingPrompter.voicePermissionsGranted() || FloatingPrompter.shouldSimulateVoice()
+  );
   const [editing, setEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
@@ -90,22 +103,63 @@ function PrompterScreen() {
   // the native frame follows every change to the script, the speed and the size
   useEffect(() => {
     const handle = setTimeout(() => {
-      FloatingPrompter.configure({ text: script, wordsPerMinute, fontSize, autoStartDelay });
+      FloatingPrompter.configure({ text: script, wordsPerMinute, fontSize, autoStartDelay, voice });
       FloatingPrompter.saveDraft(script);
     }, 150);
     return () => clearTimeout(handle);
-  }, [script, wordsPerMinute, fontSize, autoStartDelay]);
+  }, [script, wordsPerMinute, fontSize, autoStartDelay, voice]);
+
+  // the voice mode needs the microphone and speech recognition
+  const chooseVoice = useCallback(async (next: boolean) => {
+    setError(null);
+    if (next && !FloatingPrompter.voicePermissionsGranted()) {
+      const granted = await FloatingPrompter.requestVoicePermissions();
+      if (!granted) {
+        setError('Allow the microphone and speech recognition in Settings to follow your voice.');
+        return;
+      }
+    }
+    setVoice(next);
+  }, []);
+
+  // simulator and terminal checks: feed the words of a read, three words a second
+  useEffect(() => {
+    if (!FloatingPrompter.shouldSimulateVoice()) {
+      return;
+    }
+    setScript(SAMPLE_SCRIPT);
+    const words = SIMULATED_READ.split(' ');
+    let index = 0;
+    let interval: ReturnType<typeof setInterval> | undefined;
+    const begin = setTimeout(async () => {
+      await FloatingPrompter.setSimulatedVoice(true);
+      await FloatingPrompter.restart();
+      await FloatingPrompter.setPlaying(true);
+      interval = setInterval(() => {
+        if (index >= words.length) {
+          clearInterval(interval);
+          return;
+        }
+        FloatingPrompter.debugHear(words[index]);
+        index += 1;
+      }, 330);
+    }, 2500);
+    return () => {
+      clearTimeout(begin);
+      clearInterval(interval);
+    };
+  }, []);
 
   const float = useCallback(async () => {
     setError(null);
     Keyboard.dismiss();
     try {
-      await FloatingPrompter.configure({ text: script, wordsPerMinute, fontSize, autoStartDelay });
+      await FloatingPrompter.configure({ text: script, wordsPerMinute, fontSize, autoStartDelay, voice });
       await FloatingPrompter.start();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
-  }, [script, wordsPerMinute, fontSize, autoStartDelay]);
+  }, [script, wordsPerMinute, fontSize, autoStartDelay, voice]);
 
   // terminal checks on a real iphone: launch with "-prompterAutostart YES"
   const autostarted = useRef(false);
@@ -140,6 +194,31 @@ function PrompterScreen() {
             ? 'The prompt is in the floating window.'
             : 'The floating window shows this frame: two lines that scroll.'}
         </Text>
+
+        <View style={styles.modeCard}>
+          <Text style={styles.settingLabel}>The scroll follows</Text>
+          <View style={styles.segments}>
+            {[
+              { label: 'My voice', value: true },
+              { label: 'A timer', value: false },
+            ].map((option) => {
+              const selected = option.value === voice;
+              return (
+                <Pressable
+                  key={option.label}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Scroll follows ${option.label}`}
+                  accessibilityState={{ selected }}
+                  onPress={() => chooseVoice(option.value)}
+                  style={[styles.segment, selected && styles.segmentSelected]}>
+                  <Text style={[styles.segmentText, selected && styles.segmentTextSelected]}>
+                    {option.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
 
         <View style={styles.settings}>
           <View style={styles.setting}>
@@ -183,27 +262,40 @@ function PrompterScreen() {
           </View>
         </View>
 
-        <View style={styles.autoStart}>
-          <Text style={styles.settingLabel}>Start after I leave the app</Text>
-          <View style={styles.segments}>
-            {AUTO_STARTS.map((option) => {
-              const selected = option.seconds === autoStartDelay;
-              return (
-                <Pressable
-                  key={option.label}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Start delay ${option.label}`}
-                  accessibilityState={{ selected }}
-                  onPress={() => setAutoStartDelay(option.seconds)}
-                  style={[styles.segment, selected && styles.segmentSelected]}>
-                  <Text style={[styles.segmentText, selected && styles.segmentTextSelected]}>
-                    {option.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
+        {voice ? (
+          <View style={styles.modeCard}>
+            <Text style={styles.settingLabel}>
+              {state.listening ? 'Listening' : state.playing ? 'No microphone: timer' : 'Voice'}
+            </Text>
+            <Text numberOfLines={1} style={styles.heard}>
+              {state.listening && state.heard
+                ? `"${state.heard}"`
+                : 'Read at your own pace. Say a section again, and the prompt goes back with you.'}
+            </Text>
           </View>
-        </View>
+        ) : (
+          <View style={styles.autoStart}>
+            <Text style={styles.settingLabel}>Start after I leave the app</Text>
+            <View style={styles.segments}>
+              {AUTO_STARTS.map((option) => {
+                const selected = option.seconds === autoStartDelay;
+                return (
+                  <Pressable
+                    key={option.label}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Start delay ${option.label}`}
+                    accessibilityState={{ selected }}
+                    onPress={() => setAutoStartDelay(option.seconds)}
+                    style={[styles.segment, selected && styles.segmentSelected]}>
+                    <Text style={[styles.segmentText, selected && styles.segmentTextSelected]}>
+                      {option.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        )}
 
         <View style={[styles.scriptCard, editing && styles.scriptCardEditing]}>
           <View style={styles.scriptHeader}>
@@ -251,7 +343,9 @@ function PrompterScreen() {
 
             {state.floating ? (
               <Text style={styles.hint}>
-                {autoStartDelay > 0
+                {voice
+                  ? 'Open the Camera app and start to record. The prompt follows your voice.'
+                  : autoStartDelay > 0
                   ? `Open the Camera app and start to record. The prompt starts ${autoStartDelay} s after you leave this app.`
                   : 'Open the Camera app. iOS pauses the prompt there: tap the floating prompt, then tap play.'}
               </Text>
@@ -388,6 +482,15 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
     backgroundColor: colors.surface,
   },
+  modeCard: {
+    gap: space.xs,
+    padding: space.sm,
+    marginBottom: space.sm,
+    borderRadius: radius.card,
+    borderCurve: 'continuous',
+    backgroundColor: colors.surface,
+  },
+  heard: { color: colors.text, fontSize: 15, lineHeight: 36 },
   autoStart: {
     gap: space.xs,
     padding: space.sm,
