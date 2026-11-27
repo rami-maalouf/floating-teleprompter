@@ -1,0 +1,20 @@
+{
+  "expo": {
+    "name": "Floating Teleprompter",
+    "slug": "floating-teleprompter",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "platforms": ["ios"],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.ramimaalouf.floatingteleprompter",
+      "infoPlist": {
+        "UIBackgroundModes": ["audio"],
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "plugins": ["expo-dev-client"]
+  }
+}
