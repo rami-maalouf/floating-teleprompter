@@ -2,12 +2,14 @@
 
 an iphone app for the grok bot / expo showcase. paste a script, float it in a native picture in picture window that shows two short scrolling lines, then open apple's camera app and record a talking-head clip. the prompt is not in the clip, because the camera app records the camera and not the screen.
 
+this is its own repository (`rami-maalouf/floating-teleprompter`). it started in the expo content workbench and moved here on 2026-11-27.
+
 it is an expo development build (sdk 58) with one local swift module. it does not run in expo go.
 
 ## run it
 
 ```bash
-cd demos/floating-teleprompter
+cd code/react-native/floating-teleprompter    # from the life-os root
 bun install
 bun run ios:device     # build, sign and install on the connected iphone, then start metro on port 8097
 ```
@@ -18,7 +20,7 @@ the app is already installed on rami's iphone 16 pro (bundle id `com.ramimaalouf
 bun run start          # metro on port 8097, dev client mode
 ```
 
-then open the app on the phone. the phone and the mac must be on the same network. the port is 8097 because the sibling demo `pocket-soundboard` uses 8088.
+then open the app on the phone. the phone and the mac must be on the same network. the port is 8097, so it does not collide with other expo projects on 8081.
 
 since 2026-11-27 the phone has a release build. it holds its own javascript, so it runs with no mac and no metro, and it has no dev gear button. to put a new release build on the phone:
 
