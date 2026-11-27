@@ -26,14 +26,33 @@ after a change to a swift file or to `app.json`, build again with `bun run ios:d
 
 ## use it
 
-1. paste the script. the frame at the top is the real picture that floats.
-2. choose what the scroll follows: "my voice" or "a timer". the first time you choose "my voice", ios asks for the microphone and for speech recognition. allow both.
-3. set the text size (and the speed, for the timer). play and restart work in the preview, so you can rehearse first.
+1. tap the script card. a bottom sheet opens with the editor. paste, clear or type, then tap done. the frame above the sheet shows each change.
+2. turn "follow my voice" on or off. the first time you turn it on, ios asks for the microphone and for speech recognition. allow both.
+3. set the text size. with the voice off, also set the speed and the start delay. the two round buttons under the frame are restart and play, so you can rehearse first.
 4. tap "float the prompt". the floating window appears.
 5. open the camera app and start to record.
-   - my voice: read. the prompt moves when you speak and waits when you stop.
-   - a timer: the prompt starts by itself after the "start after i leave the app" delay (default 10 s).
+   - voice on: read. the prompt moves when you speak and waits when you stop.
+   - voice off: the prompt starts by itself after the start delay (default 10 s).
 6. come back to the app and tap stop when you are done.
+
+"session log" at the bottom opens a sheet with what ios did. it is for checks on a real phone.
+
+## the screen
+
+the screen was made simpler on 2026-11-27. each part was kept, moved or removed for a reason:
+
+- the frame: kept, and it is the focal point. it is the real picture that floats.
+- the caption under the frame, the status pill, and the "listening" card: removed. one status line under the frame replaces the three.
+- play and restart: kept as two round glass buttons next to the status line. stop shows only while the prompt is armed.
+- the script field: moved to a bottom sheet (expo router `formSheet`, detents 62% and 100%). the main screen shows a two-line excerpt and the word count.
+- "the scroll follows: my voice / a timer": now one switch, "follow my voice".
+- speed and start delay: shown only with the voice off, because only the timer uses them.
+- the window type (call / video): removed from the screen. the video type disappears over camera, so the call type is the only one in use. the native code keeps both, and `-prompterVideoWindow` is no longer read by the screen.
+- the session log: moved to a sheet behind one low-emphasis link.
+
+buttons, cards and sheets use liquid glass (`expo-glass-effect`, ios 26 and later). on an older ios they are plain dark surfaces. the switch is the system switch. icons are sf symbols (`expo-symbols`).
+
+files: `src/app/index.tsx` (main screen), `src/app/script.tsx` and `src/app/log.tsx` (sheets), `src/app/_layout.tsx` (stack), `src/components/` (glass and controls), `src/store.ts` (the settings both screens share).
 
 ## floating window type
 
@@ -66,7 +85,7 @@ why the timer delay exists: ios pauses the floating window when the camera app o
 - `modules/floating-prompter/ios/SpeechListener.swift` turns the microphone into words (`SFSpeechRecognizer`, on-device when the phone supports it). it knows nothing about the script.
 - `modules/floating-prompter/ios/ScriptFollower.swift` finds the place in the script from the heard words. it has no audio and no ui, so `bun run test:follower` runs it on the mac. in the voice mode the engine keeps the timebase at rate 0 and moves its time to the row that the follower found.
 - `modules/floating-prompter/ios/FloatingPrompterModule.swift` is the expo module: functions, two events (`onStateChange`, `onLog`) and the preview view.
-- `App.tsx` is the one screen. `app.json` adds the `audio` background mode, which picture in picture needs.
+- `src/app/` holds the main screen and two sheets (expo router). `app.json` adds the `audio` background mode, which picture in picture needs.
 
 three facts in the engine come from measurements on the iphone, not from documentation:
 
@@ -93,7 +112,7 @@ real iphone (iphone 16 pro, ios 27.0.1, over the cable, driven from the terminal
 - camera in front for 45 s with the prompt floating: the app was not suspended (longest pause 0.04 s), the auto start pressed play after 10 s, 798 frames were drawn, and the script reached its end 25.7 s later (25 s script).
 - settings in front for 20 s: the app stayed alive.
 - voice follow with simulated words (`-prompterSimulateVoice YES`, no microphone) behind camera for 22 s: ios paused the window, the engine continued after 1 s, the app was not suspended (longest pause 0.06 s).
-- the real microphone on the phone was not tested. the permission dialogs need a tap on the phone.
+- real microphone, after rami allowed the permissions: with camera in front for 20 s (not recording), the listener started with on-device recognition and the microphone gave 189 buffers. nobody spoke, so the follow itself is still not tested with a voice.
 - return to the app: the engine reports the background time, the frames and the longest pause in the session log.
 
 simulator (iphone 17 pro, ios 27.0, screenshots inspected):
@@ -132,7 +151,7 @@ the session log at the bottom of the app shows what ios did. after a recording, 
 known small things:
 
 - the engine logs "display layer failed: operation interrupted" once, about 10 s after camera opens. it flushes the layer and continues. the cause is unknown.
-- the dev client's floating gear button covers a part of the status pill at the top right. it exists only in development builds.
+- the dev client's floating gear button sits at the top right. no control is under it. it exists only in development builds.
 
 ## terminal checks on the phone
 

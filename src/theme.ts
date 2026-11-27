@@ -1,27 +1,28 @@
 // one dark theme. the app is used next to a camera, so the screen stays dim.
 export const colors = {
-  background: '#0B0B0D',
+  background: '#08080A',
+  // the fill of a card when liquid glass is not available
   surface: '#17171B',
-  surfaceRaised: '#232329',
-  segmentSelected: '#3A3A43',
-  border: '#2A2A31',
+  control: 'rgba(255, 255, 255, 0.08)',
+  controlSelected: 'rgba(255, 255, 255, 0.2)',
+  separator: 'rgba(255, 255, 255, 0.1)',
   text: '#F4F4F6',
-  textMuted: '#A0A0AB',
-  textFaint: '#6C6C78',
+  textMuted: '#A3A3AE',
+  textFaint: '#70707C',
   accent: '#4D9EFF',
-  accentSoft: 'rgba(77, 158, 255, 0.16)',
   danger: '#FF6B61',
 };
 
 export const space = {
   xs: 6,
   sm: 12,
-  md: 18,
+  md: 16,
+  lg: 24,
   screen: 18,
 };
 
 export const radius = {
   control: 10,
-  card: 16,
+  card: 22,
   pill: 999,
 };
