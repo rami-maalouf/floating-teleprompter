@@ -43,6 +43,10 @@ public class FloatingPrompterModule: Module {
       UserDefaults.standard.bool(forKey: "prompterSimulateVoice")
     }
 
+    Function("shouldUseVideoWindow") {
+      UserDefaults.standard.bool(forKey: "prompterVideoWindow")
+    }
+
     Function("voicePermissionsGranted") {
       SpeechListener.microphoneGranted && SpeechListener.speechGranted
     }
@@ -77,6 +81,10 @@ public class FloatingPrompterModule: Module {
         autoStartDelay: config.autoStartDelay,
         voice: config.voice
       )
+    }.runOnQueue(.main)
+
+    AsyncFunction("setCallStyle") { (callStyle: Bool) in
+      PrompterEngine.shared.setCallStyle(callStyle)
     }.runOnQueue(.main)
 
     AsyncFunction("start") {
@@ -115,6 +123,10 @@ final class PrompterPreviewView: ExpoView {
 
   override func layoutSubviews() {
     super.layoutSubviews()
-    PrompterEngine.shared.hostView.frame = bounds
+    let hostView = PrompterEngine.shared.hostView
+    // while the prompt floats in a call window, the host view is in that window
+    if hostView.superview === self {
+      hostView.frame = bounds
+    }
   }
 }

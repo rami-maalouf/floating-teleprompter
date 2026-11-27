@@ -110,6 +110,13 @@ function PrompterScreen() {
   }, [script, wordsPerMinute, fontSize, autoStartDelay, voice]);
 
   // the voice mode needs the microphone and speech recognition
+  // the window type. "-prompterVideoWindow YES" starts with the video type for terminal checks.
+  const [callStyle, setCallStyle] = useState(() => !FloatingPrompter.shouldUseVideoWindow());
+  const chooseCallStyle = useCallback(async (next: boolean) => {
+    await FloatingPrompter.stop();
+    setCallStyle(next);
+  }, []);
+
   const chooseVoice = useCallback(async (next: boolean) => {
     setError(null);
     if (next && !FloatingPrompter.voicePermissionsGranted()) {
@@ -155,11 +162,12 @@ function PrompterScreen() {
     Keyboard.dismiss();
     try {
       await FloatingPrompter.configure({ text: script, wordsPerMinute, fontSize, autoStartDelay, voice });
+      await FloatingPrompter.setCallStyle(callStyle);
       await FloatingPrompter.start();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
-  }, [script, wordsPerMinute, fontSize, autoStartDelay, voice]);
+  }, [script, wordsPerMinute, fontSize, autoStartDelay, voice, callStyle]);
 
   // terminal checks on a real iphone: launch with "-prompterAutostart YES"
   const autostarted = useRef(false);
@@ -210,6 +218,31 @@ function PrompterScreen() {
                   accessibilityLabel={`Scroll follows ${option.label}`}
                   accessibilityState={{ selected }}
                   onPress={() => chooseVoice(option.value)}
+                  style={[styles.segment, selected && styles.segmentSelected]}>
+                  <Text style={[styles.segmentText, selected && styles.segmentTextSelected]}>
+                    {option.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+
+        <View style={styles.modeCard}>
+          <Text style={styles.settingLabel}>Floating window type</Text>
+          <View style={styles.segments}>
+            {[
+              { label: 'Call', value: true },
+              { label: 'Video', value: false },
+            ].map((option) => {
+              const selected = option.value === callStyle;
+              return (
+                <Pressable
+                  key={option.label}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Window type ${option.label}`}
+                  accessibilityState={{ selected }}
+                  onPress={() => chooseCallStyle(option.value)}
                   style={[styles.segment, selected && styles.segmentSelected]}>
                   <Text style={[styles.segmentText, selected && styles.segmentTextSelected]}>
                     {option.label}

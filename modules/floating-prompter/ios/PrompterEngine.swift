@@ -62,6 +62,11 @@ final class PrompterEngine: NSObject {
   private var debugTranscript: [String] = []
   private var backgroundMicBuffers = 0
 
+  // true: a video-call window. false: a video-player window.
+  private var callStyle = true
+  private var callContent: AVPictureInPictureVideoCallViewController?
+  private weak var previewContainer: UIView?
+
   private var wordsPerMinute: Double = 140
   // seconds between "the app left the front" and "the scroll starts". 0 is off.
   private var autoStartDelay: Double = 0
@@ -118,6 +123,12 @@ final class PrompterEngine: NSObject {
     ]
   }
 
+  // the window type changes only while the prompt is stopped
+  func setCallStyle(_ value: Bool) {
+    guard !armed else { return }
+    callStyle = value
+  }
+
   func configure(text: String, wordsPerMinute: Double, fontSize: Double, autoStartDelay: Double, voice: Bool) {
     let previousProgress = progress
     let voiceChanged = voice != voiceMode
@@ -154,10 +165,32 @@ final class PrompterEngine: NSObject {
 
     if !armed {
       try activateAudioSession()
-      let source = AVPictureInPictureController.ContentSource(
-        sampleBufferDisplayLayer: hostView.displayLayer,
-        playbackDelegate: self
-      )
+      let source: AVPictureInPictureController.ContentSource
+      if callStyle {
+        // a video-call window. ios does not treat it as media playback, so it has
+        // no play button and ios sends it no "pause". the frames are the same:
+        // the host view moves into the window while it floats.
+        guard let container = hostView.superview else {
+          throw PrompterError.noPreview
+        }
+        let content = AVPictureInPictureVideoCallViewController()
+        content.preferredContentSize = CGSize(
+          width: PrompterRenderer.canvasSize.width / 3,
+          height: PrompterRenderer.canvasSize.height / 3
+        )
+        content.view.backgroundColor = .black
+        callContent = content
+        previewContainer = container
+        source = AVPictureInPictureController.ContentSource(
+          activeVideoCallSourceView: container,
+          contentViewController: content
+        )
+      } else {
+        source = AVPictureInPictureController.ContentSource(
+          sampleBufferDisplayLayer: hostView.displayLayer,
+          playbackDelegate: self
+        )
+      }
       let controller = AVPictureInPictureController(contentSource: source)
       controller.delegate = self
       // the prompt also floats by itself when the user leaves the app
@@ -167,6 +200,7 @@ final class PrompterEngine: NSObject {
         DispatchQueue.main.async { self?.startPendingIfPossible() }
       }
       armed = true
+      log("window type: \(callStyle ? "call" : "video")")
       log("armed: \(renderer.rowCount) rows, \(Int(duration)) s at \(Int(wordsPerMinute)) wpm")
     }
 
@@ -238,6 +272,8 @@ final class PrompterEngine: NSObject {
     possibleObservation = nil
     pip = nil
     pipActive = false
+    returnHostViewToPreview()
+    callContent = nil
     if armed {
       armed = false
       stopSilence()
@@ -455,6 +491,14 @@ final class PrompterEngine: NSObject {
 
   // MARK: - picture in picture
 
+  private func returnHostViewToPreview() {
+    guard let previewContainer, hostView.superview !== previewContainer else { return }
+    hostView.removeFromSuperview()
+    hostView.autoresizingMask = []
+    hostView.frame = previewContainer.bounds
+    previewContainer.addSubview(hostView)
+  }
+
   private func startPendingIfPossible() {
     guard pendingStart, let pip, pip.isPictureInPicturePossible else { return }
     guard UIApplication.shared.applicationState == .active else { return }
@@ -617,6 +661,12 @@ final class PrompterEngine: NSObject {
 extension PrompterEngine: AVPictureInPictureControllerDelegate {
   func pictureInPictureControllerWillStartPictureInPicture(_ controller: AVPictureInPictureController) {
     startAnswered = true
+    if let callContent {
+      hostView.removeFromSuperview()
+      hostView.frame = callContent.view.bounds
+      hostView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+      callContent.view.addSubview(hostView)
+    }
     log("picture in picture will start")
   }
 
@@ -630,6 +680,7 @@ extension PrompterEngine: AVPictureInPictureControllerDelegate {
   func pictureInPictureControllerDidStopPictureInPicture(_ controller: AVPictureInPictureController) {
     pipActive = false
     dirty = true
+    returnHostViewToPreview()
     log("picture in picture stopped")
     emitState()
   }
@@ -640,6 +691,7 @@ extension PrompterEngine: AVPictureInPictureControllerDelegate {
   ) {
     pipActive = false
     startAnswered = true
+    returnHostViewToPreview()
     log("error: picture in picture failed to start: \(error.localizedDescription)")
     emitState()
   }
@@ -698,6 +750,7 @@ extension PrompterEngine: AVPictureInPictureSampleBufferPlaybackDelegate {
 enum PrompterError: LocalizedError {
   case unsupported
   case emptyScript
+  case noPreview
 
   var errorDescription: String? {
     switch self {
@@ -705,6 +758,8 @@ enum PrompterError: LocalizedError {
       return "Picture in Picture is not available on this device."
     case .emptyScript:
       return "Paste a script first."
+    case .noPreview:
+      return "The preview is not on screen."
     }
   }
 }

@@ -47,6 +47,7 @@ declare class FloatingPrompterModule extends NativeModule<PrompterEvents> {
   isSupported(): boolean;
   shouldAutostart(): boolean;
   shouldSimulateVoice(): boolean;
+  shouldUseVideoWindow(): boolean;
   voicePermissionsGranted(): boolean;
   requestVoicePermissions(): Promise<boolean>;
   setSimulatedVoice(simulated: boolean): Promise<void>;
@@ -54,6 +55,9 @@ declare class FloatingPrompterModule extends NativeModule<PrompterEvents> {
   loadDraft(): string | null;
   saveDraft(text: string): void;
   configure(config: PrompterConfig): Promise<void>;
+  // true: a video-call window (no play button, ios sends it no pause).
+  // false: a video-player window. change it only while the prompt is stopped.
+  setCallStyle(callStyle: boolean): Promise<void>;
   start(): Promise<void>;
   setPlaying(playing: boolean): Promise<void>;
   restart(): Promise<void>;

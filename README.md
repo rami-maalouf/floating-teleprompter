@@ -35,6 +35,15 @@ after a change to a swift file or to `app.json`, build again with `bun run ios:d
    - a timer: the prompt starts by itself after the "start after i leave the app" delay (default 10 s).
 6. come back to the app and tap stop when you are done.
 
+## floating window type
+
+rami saw on the phone that the first window type (a video-player window) disappears when camera opens. the app now has two types, under "floating window type":
+
+- call (default): a video-call window (`AVPictureInPictureVideoCallViewController`). ios does not treat it as media playback. it has no play button, and ios sends it no "pause". the timer delay or the voice starts the scroll.
+- video: the video-player window with play, pause and skip buttons. this is the type that disappeared over camera.
+
+iphone log, call type, camera in front for 25 s: the window started, ios sent no stop, and the "display layer failed: operation interrupted" line that the video type logged about 10 s after camera opened did not occur. this is a good sign, not proof: nobody looked at the screen. other app store apps state that their floating prompt stays on top of the built-in camera app, so ios permits it in some form.
+
 ## voice follow
 
 the app listens with on-device speech recognition and finds your place in the script from the last 6 words it heard.
@@ -102,7 +111,7 @@ also: `bun run typecheck` passes, and `bunx expo-doctor` passes 20 of 20 checks.
 
 the logs prove that the app runs and draws frames behind camera. they do not prove what is on the glass. check these on the phone:
 
-1. the floating window is visible on top of the camera app, in photo mode and in video mode.
+1. the floating window is visible on top of the camera app, in photo mode and in video mode. check the call type first. the video type failed this check on rami's phone.
 2. the window stays visible and keeps scrolling after you press record. this is the most important one. the terminal cannot press record, so nothing here tested a recording.
 3. the recorded clip has clean audio. the app plays a silent loop with `mixWithOthers`, and the effect of that on camera's audio was not tested.
 4. the text is readable at arm's length in sizes s, m and l, and after a pinch to resize the window.
